@@ -40,7 +40,13 @@ export default defineConfig({
       '/api/dashscope': {
         target: 'https://dashscope.aliyuncs.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/dashscope/, '')
+        rewrite: (path) => {
+          // 去掉 /api/dashscope 前缀，保留剩余路径
+          // 例: /api/dashscope/compatible-mode/v1/chat/completions → /compatible-mode/v1/chat/completions
+          const newPath = path.replace(/^\/api\/dashscope/, '');
+          console.log('[Vite Proxy]', path, '→', `https://dashscope.aliyuncs.com${newPath}`);
+          return newPath;
+        }
       }
     }
   }

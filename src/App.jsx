@@ -241,34 +241,39 @@ const InfoIcon = ({ onClick }) => (
   </button>
 );
 
-// 标准化 URL 辅助函数 (按照用户指定逻辑重构)
+// 标准化 URL 辅助函数 (强化逻辑以防重复拼接 - 支持所有边界情况)
 const normalizeUrl = (url) => {
   if (!url) return '';
-  // 1. 去掉首尾空格并去掉末尾斜杠
+  
+  // 1. 去首尾空格和末尾斜杠
   let cleanBase = url.trim().replace(/\/+$/, '');
   
   // 2. 强制 HTTPS
-  if (!cleanBase.startsWith('http')) cleanBase = 'https://' + cleanBase;
+  if (!cleanBase.startsWith('http')) {
+    cleanBase = 'https://' + cleanBase;
+  }
   cleanBase = cleanBase.replace(/^http:\/\//i, 'https://');
 
-  // 3. 如果用户填了完整路径，自动截断以防重复拼接
-  if (cleanBase.endsWith('/chat/completions')) {
-    cleanBase = cleanBase.replace('/chat/completions', '');
-  }
+  // 3. 移除所有末尾的 /chat/completions（可能多个，支持双斜杠等边界情况）
+  cleanBase = cleanBase.replace(/\/chat\/completions(\/)*$/gi, '');
   
-  // 4. 组合最终 URL，确保后缀只出现一次
+  // 4. 确保最终有且仅有一个 /chat/completions 后缀
   return `${cleanBase}/chat/completions`;
 };
 
 // 根据当前环境获取最终请求 URL (用于处理 CORS 代理)
 const getApiUrl = (baseUrl) => {
   const normUrl = normalizeUrl(baseUrl);
+  console.debug('API URL normalized:', normUrl);
   
   // 阿里云 DashScope 直连通常会报 CORS，我们在开发(Vite)和生产(Vercel)环境都通过 /api/dashscope 代理
   if (normUrl.includes('dashscope.aliyuncs.com')) {
-    return normUrl.replace('https://dashscope.aliyuncs.com', '/api/dashscope');
+    const proxyUrl = normUrl.replace('https://dashscope.aliyuncs.com', '/api/dashscope');
+    console.debug('Using proxy URL:', proxyUrl);
+    return proxyUrl;
   }
   
+  console.debug('Using direct URL:', normUrl);
   return normUrl;
 };
 

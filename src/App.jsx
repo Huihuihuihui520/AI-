@@ -241,19 +241,23 @@ const InfoIcon = ({ onClick }) => (
   </button>
 );
 
-// 标准化 URL 辅助函数
+// 标准化 URL 辅助函数 (按照用户指定逻辑重构)
 const normalizeUrl = (url) => {
   if (!url) return '';
-  let u = url.trim();
-  // 1. 强制 HTTPS (处理 http:// 或 无协议开头)
-  if (!u.startsWith('http')) u = 'https://' + u;
-  u = u.replace(/^http:\/\//i, 'https://');
+  // 1. 去掉首尾空格并去掉末尾斜杠
+  let cleanBase = url.trim().replace(/\/+$/, '');
   
-  // 2. 去除末尾所有重复斜杠
-  u = u.replace(/\/+$/, '');
+  // 2. 强制 HTTPS
+  if (!cleanBase.startsWith('http')) cleanBase = 'https://' + cleanBase;
+  cleanBase = cleanBase.replace(/^http:\/\//i, 'https://');
+
+  // 3. 如果用户填了完整路径，自动截断以防重复拼接
+  if (cleanBase.endsWith('/chat/completions')) {
+    cleanBase = cleanBase.replace('/chat/completions', '');
+  }
   
-  // 3. 处理重复路径拼接：如果用户填写的已经包含 /chat/completions，先切除以防二次拼接
-  return u + '/chat/completions';
+  // 4. 组合最终 URL，确保后缀只出现一次
+  return `${cleanBase}/chat/completions`;
 };
 
 // 根据当前环境获取最终请求 URL (用于处理 CORS 代理)
@@ -294,8 +298,8 @@ export default function App() {
 
   const [settings, setSettings] = useState({
     apiKey: localStorage.getItem('ay_api_key') || '',
-    baseUrl: normalizeUrl(localStorage.getItem('ay_base_url') || 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
-    model: localStorage.getItem('ay_model') || 'qwen-plus' // 默认模型改为千问
+    baseUrl: localStorage.getItem('ay_base_url') || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: localStorage.getItem('ay_model') || 'qwen-plus'
   });
 
   const [showSettings, setShowSettings] = useState(false);
@@ -429,10 +433,11 @@ export default function App() {
   };
 
   const handleSettingsSave = () => {
-    const fixedUrl = normalizeUrl(settings.baseUrl);
-    setSettings(prev => ({ ...prev, baseUrl: fixedUrl }));
+    // 仅保存清理后的基础地址，不强制在此阶段拼接后缀，以保持设置界面整洁
+    const base = settings.baseUrl.trim().replace(/\/+$/, '');
+    setSettings(prev => ({ ...prev, baseUrl: base }));
     localStorage.setItem('ay_api_key', settings.apiKey);
-    localStorage.setItem('ay_base_url', fixedUrl);
+    localStorage.setItem('ay_base_url', base);
     localStorage.setItem('ay_model', settings.model);
     setShowSettings(false);
   };
@@ -442,7 +447,7 @@ export default function App() {
       const defaultBase = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
       const defaultModel = 'qwen-plus';
       setSettings(prev => ({ ...prev, baseUrl: defaultBase, model: defaultModel }));
-      localStorage.setItem('ay_base_url', normalizeUrl(defaultBase));
+      localStorage.setItem('ay_base_url', defaultBase);
       localStorage.setItem('ay_model', defaultModel);
     }
   };

@@ -25,6 +25,9 @@ jobs:
       - name: Build Vite Web App
         run: npm run build
 
+      - name: Sync Capacitor Android
+        run: npx capacitor sync android
+
       - name: Copy web assets to Android
         run: |
           rm -rf android/app/src/main/assets/public

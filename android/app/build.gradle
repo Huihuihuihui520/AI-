@@ -30,6 +30,15 @@ repositories {
     }
 }
 
+configurations {
+    all {
+        resolutionStrategy {
+            // 统一 Kotlin 版本，解决冲突
+            force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+        }
+    }
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"

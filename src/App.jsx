@@ -524,14 +524,25 @@ export default function App() {
     );
   };
 
-  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-  const handleTouchMove = (e) => { touchDelta.current = e.touches[0].clientX - touchStartX.current; };
+  const touchStartY = useRef(0);
+  const touchDeltaY = useRef(0);
+
+  const handleTouchStart = (e) => { 
+    touchStartX.current = e.touches[0].clientX; 
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchMove = (e) => { 
+    touchDelta.current = e.touches[0].clientX - touchStartX.current; 
+    touchDeltaY.current = e.touches[0].clientY - touchStartY.current;
+  };
   const handleTouchEnd = () => {
-    if (Math.abs(touchDelta.current) > 60) {
+    // 只有当水平滑动距离 > 80，且水平滑动距离远大于垂直滑动距离时，才触发切换，防止上下滚动误触
+    if (Math.abs(touchDelta.current) > 80 && Math.abs(touchDelta.current) > Math.abs(touchDeltaY.current) * 1.5) {
       if (touchDelta.current < 0 && activeTab === 'preop') setActiveTab('crisis');
       if (touchDelta.current > 0 && activeTab === 'crisis') setActiveTab('preop');
     }
     touchDelta.current = 0;
+    touchDeltaY.current = 0;
   };
 
   return (

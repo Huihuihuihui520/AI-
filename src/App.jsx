@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Settings, X, Activity, User, FileText, CheckCircle2, ChevronDown, ChevronUp, Copy, Save, Clock, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { generatePrompt } from './PromptTemplate';
 import { MEDICAL_REFS } from './MedicalRefs';
 import { Info, ExternalLink } from 'lucide-react';
+import CrisisAssistant from './pages/CrisisAssistant';
+import ModelBridge from './services/ModelBridge';
 
 const COMORBIDITY_CONFIG = [
   {
@@ -241,41 +243,7 @@ const InfoIcon = ({ onClick }) => (
   </button>
 );
 
-// 标准化 URL 辅助函数 (强化逻辑以防重复拼接 - 支持所有边界情况)
-const normalizeUrl = (url) => {
-  if (!url) return '';
-  
-  // 1. 去首尾空格和末尾斜杠
-  let cleanBase = url.trim().replace(/\/+$/, '');
-  
-  // 2. 强制 HTTPS
-  if (!cleanBase.startsWith('http')) {
-    cleanBase = 'https://' + cleanBase;
-  }
-  cleanBase = cleanBase.replace(/^http:\/\//i, 'https://');
 
-  // 3. 移除所有末尾的 /chat/completions（可能多个，支持双斜杠等边界情况）
-  cleanBase = cleanBase.replace(/\/chat\/completions(\/)*$/gi, '');
-  
-  // 4. 确保最终有且仅有一个 /chat/completions 后缀
-  return `${cleanBase}/chat/completions`;
-};
-
-// 根据当前环境获取最终请求 URL (用于处理 CORS 代理)
-const getApiUrl = (baseUrl) => {
-  const normUrl = normalizeUrl(baseUrl);
-  console.debug('API URL normalized:', normUrl);
-  
-  // 阿里云 DashScope 直连通常会报 CORS，我们在开发(Vite)和生产(Vercel)环境都通过 /api/dashscope 代理
-  if (normUrl.includes('dashscope.aliyuncs.com')) {
-    const proxyUrl = normUrl.replace('https://dashscope.aliyuncs.com', '/api/dashscope');
-    console.debug('Using proxy URL:', proxyUrl);
-    return proxyUrl;
-  }
-  
-  console.debug('Using direct URL:', normUrl);
-  return normUrl;
-};
 
 export default function App() {
   const [formData, setFormData] = useState({
@@ -303,9 +271,13 @@ export default function App() {
 
   const [settings, setSettings] = useState({
     apiKey: localStorage.getItem('ay_api_key') || '',
-    baseUrl: localStorage.getItem('ay_base_url') || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: localStorage.getItem('ay_model') || 'qwen-plus'
+    modelType: localStorage.getItem('ay_model_type') || 'qwen-max'
   });
+  const bridgeRef = useRef(new ModelBridge());
+
+  const [activeTab, setActiveTab] = useState('preop');
+  const touchStartX = useRef(0);
+  const touchDelta = useRef(0);
 
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -438,22 +410,16 @@ export default function App() {
   };
 
   const handleSettingsSave = () => {
-    // 仅保存清理后的基础地址，不强制在此阶段拼接后缀，以保持设置界面整洁
-    const base = settings.baseUrl.trim().replace(/\/+$/, '');
-    setSettings(prev => ({ ...prev, baseUrl: base }));
     localStorage.setItem('ay_api_key', settings.apiKey);
-    localStorage.setItem('ay_base_url', base);
-    localStorage.setItem('ay_model', settings.model);
+    localStorage.setItem('ay_model_type', settings.modelType);
     setShowSettings(false);
   };
 
   const resetSettings = () => {
     if (confirm('确定要重置所有 API 配置吗？')) {
-      const defaultBase = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-      const defaultModel = 'qwen-plus';
-      setSettings(prev => ({ ...prev, baseUrl: defaultBase, model: defaultModel }));
-      localStorage.setItem('ay_base_url', defaultBase);
-      localStorage.setItem('ay_model', defaultModel);
+      setSettings({ apiKey: '', modelType: 'qwen-max' });
+      localStorage.removeItem('ay_api_key');
+      localStorage.setItem('ay_model_type', 'qwen-max');
     }
   };
 
@@ -468,66 +434,13 @@ export default function App() {
     setLoading(true);
 
     const promptText = generatePrompt({ ...formData, bmi });
-
-    const requestUrl = getApiUrl(settings.baseUrl);
-    console.log("Generating report with URL:", requestUrl);
+    const systemPrompt = "你是一位资深的麻醉科主任医师，专注于术前评估和风险应对。";
 
     try {
-      const response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`
-        },
-        body: JSON.stringify({
-          model: settings.model,
-          messages: [
-            { role: "system", content: "你是一位资深的麻醉科主任医师，专注于术前评估和风险应对。" },
-            { role: "user", content: promptText }
-          ],
-          stream: true,
-          temperature: 0.1 // Keep temperature low to avoid hallucinations
-        })
+      await bridgeRef.current.sendMessage(systemPrompt, promptText, (chunk) => {
+        setResult(prev => prev + chunk);
+        window.scrollTo(0, document.body.scrollHeight);
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `请求失败: ${response.status}\n内容: ${errorText.substring(0, 200)}\nURL: ${requestUrl}`
-        );
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data: ')) {
-            const dataStr = trimmedLine.slice(6);
-            if (dataStr === '[DONE]') continue;
-
-            try {
-              const dataObj = JSON.parse(dataStr);
-              const content = dataObj.choices?.[0]?.delta?.content;
-              if (content) {
-                setResult(prev => prev + content);
-                // Keep the viewport at the bottom as new text streams in
-                window.scrollTo(0, document.body.scrollHeight);
-              }
-            } catch (e) {
-              // Gracefully ignore incomplete chunks or parsing errors that can happen in streams
-            }
-          }
-        }
-      }
-
     } catch (err) {
       setErrorMsg("请求异常：" + err.message);
     } finally {
@@ -611,18 +524,73 @@ export default function App() {
     );
   };
 
+  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const handleTouchMove = (e) => { touchDelta.current = e.touches[0].clientX - touchStartX.current; };
+  const handleTouchEnd = () => {
+    if (Math.abs(touchDelta.current) > 60) {
+      if (touchDelta.current < 0 && activeTab === 'preop') setActiveTab('crisis');
+      if (touchDelta.current > 0 && activeTab === 'crisis') setActiveTab('preop');
+    }
+    touchDelta.current = 0;
+  };
+
   return (
-    <div className="max-w-md mx-auto w-full font-sans pb-8">
+    <div className="max-w-2xl mx-auto w-full font-sans pb-8">
       {/* Header */}
-      <header className="bg-blue-600 text-white p-4 rounded-xl shadow-lg flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-2">
-          <Activity className="w-6 h-6" />
-          <h1 className="text-xl font-bold">临床麻醉助手</h1>
+      <header className="bg-blue-600 text-white p-4 rounded-xl shadow-lg mb-2">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center space-x-2">
+            <Activity className="w-6 h-6" />
+            <h1 className="text-xl font-bold">临床麻醉助手</h1>
+          </div>
+          <button onClick={() => setShowSettings(true)} className="p-2 bg-blue-700/50 rounded-full active:scale-95 transition-transform">
+            <Settings className="w-5 h-5" />
+          </button>
         </div>
-        <button onClick={() => setShowSettings(true)} className="p-2 bg-blue-700/50 rounded-full active:scale-95 transition-transform">
-          <Settings className="w-5 h-5" />
-        </button>
+        {/* Tab Navigation */}
+        <div className="flex bg-blue-700/40 rounded-lg p-0.5">
+          <button
+            onClick={() => setActiveTab('preop')}
+            className={`flex-1 py-2 rounded-md text-xs font-bold transition-all ${activeTab === 'preop' ? 'bg-white text-blue-700 shadow-md' : 'text-blue-100'}`}
+          >
+            术前评估
+          </button>
+          <button
+            onClick={() => setActiveTab('crisis')}
+            className={`flex-1 py-2 rounded-md text-xs font-bold transition-all ${activeTab === 'crisis' ? 'bg-white text-rose-600 shadow-md' : 'text-blue-100'}`}
+          >
+            ⚡ 术中危机
+          </button>
+        </div>
       </header>
+
+      {/* Swipeable Content Area */}
+      <div
+        className="tab-swipe-container"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+
+      {/* Crisis Tab */}
+      {activeTab === 'crisis' && (
+        <div className="animate-in fade-in slide-in-from-right duration-300">
+          <CrisisAssistant
+            settings={settings}
+            patientInfo={{
+              age: formData.age,
+              gender: formData.gender,
+              weight: formData.weight,
+              surgery: formData.surgery,
+              comorbidities: formData.comorbidities
+            }}
+          />
+        </div>
+      )}
+
+      {/* Preop Tab */}
+      {activeTab === 'preop' && (
+      <div className="animate-in fade-in slide-in-from-left duration-300">
 
       {errorMsg && (
         <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded-lg mb-4 text-sm whitespace-pre-wrap break-all">
@@ -1072,6 +1040,9 @@ export default function App() {
           </div>
         </section>
       )}
+      </div>
+      )}
+      </div>
 
       {/* 历史记录展示 */}
       {!result && history.length > 0 && (
@@ -1128,25 +1099,20 @@ export default function App() {
             >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-bold mb-6 text-slate-800">设置 (BYOK)</h2>
+            <h2 className="text-xl font-bold mb-6 text-slate-800">设置</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">接口地址 (Base URL)</label>
-                <input
-                  type="text"
-                  value={settings.baseUrl}
-                  onChange={e => setSettings(s => ({ ...s, baseUrl: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">模型名称 (Model Name)</label>
-                <input
-                  type="text"
-                  value={settings.model}
-                  onChange={e => setSettings(s => ({ ...s, model: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none transition-all"
-                />
+                <label className="block text-sm font-medium text-slate-700 mb-1">AI 模型</label>
+                <select
+                  value={settings.modelType}
+                  onChange={e => setSettings(s => ({ ...s, modelType: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none transition-all bg-white"
+                >
+                  {ModelBridge.getAvailableModels().map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">术前评估和术中危机均使用此模型</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
@@ -1155,6 +1121,7 @@ export default function App() {
                   value={settings.apiKey}
                   onChange={e => setSettings(s => ({ ...s, apiKey: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none transition-all"
+                  placeholder="输入对应模型的 API Key"
                 />
               </div>
               <div className="flex space-x-2 mt-4">

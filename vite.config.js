@@ -41,10 +41,17 @@ export default defineConfig({
         target: 'https://dashscope.aliyuncs.com',
         changeOrigin: true,
         rewrite: (path) => {
-          // 去掉 /api/dashscope 前缀，保留剩余路径
-          // 例: /api/dashscope/compatible-mode/v1/chat/completions → /compatible-mode/v1/chat/completions
           const newPath = path.replace(/^\/api\/dashscope/, '');
           console.log('[Vite Proxy]', path, '→', `https://dashscope.aliyuncs.com${newPath}`);
+          return newPath;
+        }
+      },
+      '/api/gemini': {
+        target: 'https://generativelanguage.googleapis.com',
+        changeOrigin: true,
+        rewrite: (path) => {
+          const newPath = path.replace(/^\/api\/gemini/, '');
+          console.log('[Vite Proxy]', path, '→', `https://generativelanguage.googleapis.com${newPath}`);
           return newPath;
         }
       }

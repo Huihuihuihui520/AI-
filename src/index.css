@@ -7,3 +7,26 @@
     @apply bg-slate-50 text-slate-800 antialiased pt-4 pb-24 px-2;
   }
 }
+
+/* Tab swipe container */
+.tab-swipe-container {
+  touch-action: pan-y;
+  overflow-x: hidden;
+  min-height: 60vh;
+}
+
+/* Safety warning pulse animation */
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Crisis result panel responsive */
+@media (max-width: 768px) {
+  .crisis-panel-grid {
+    grid-template-columns: 1fr;
+  }
+}

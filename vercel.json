@@ -3,6 +3,10 @@
     {
       "source": "/api/dashscope/:path*",
       "destination": "https://dashscope.aliyuncs.com/:path*"
+    },
+    {
+      "source": "/api/gemini/:path*",
+      "destination": "https://generativelanguage.googleapis.com/:path*"
     }
   ]
 }
